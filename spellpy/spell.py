@@ -12,13 +12,13 @@ import logging
 logging.basicConfig(level=logging.INFO,
                     format='[%(asctime)s][%(levelname)s]: %(message)s')
 
-
 sys.setrecursionlimit(10000)
 
 
 class LCSObject:
     """ Class object to store a log group with the same template
     """
+
     def __init__(self, logTemplate='', logIDL=[]):
         self.logTemplate = logTemplate
         self.logIDL = logIDL
@@ -27,6 +27,7 @@ class LCSObject:
 class Node:
     """ A node in prefix tree data structure
     """
+
     def __init__(self, token='', templateNo=0):
         self.logClust = None
         self.token = token
@@ -37,6 +38,7 @@ class Node:
 class CustomUnpickler(pickle.Unpickler):
     """ CustomUnpickler is to prevent can't get attribute error when pickle load.
     """
+
     def find_class(self, module, name):
         try:
             return super().find_class(__name__, name)
@@ -53,7 +55,9 @@ class LogParser(pickle.Unpickler):
         savePath : the path of the output file
         tau : how much percentage of tokens matched to merge a log message
     """
-    def __init__(self, indir='./', outdir='./result/', log_format=None, tau=0.5, keep_para=True, text_max_length=4096, logmain=None, date_filter=''):
+
+    def __init__(self, indir='./', outdir='./result/', log_format=None, tau=0.5, keep_para=True, text_max_length=4096,
+                 logmain=None, date_filter=''):
         self.path = indir
         self.logname = None
         self.logmain = logmain
@@ -65,28 +69,29 @@ class LogParser(pickle.Unpickler):
         self.lastestLineId = 0
         self.text_max_length = text_max_length
         self.date_filter = date_filter
+        self.nb_keys = None
 
     def LCS(self, seq1, seq2):
-        lengths = [[0 for j in range(len(seq2)+1)] for i in range(len(seq1)+1)]
+        lengths = [[0 for j in range(len(seq2) + 1)] for i in range(len(seq1) + 1)]
         # row 0 and column 0 are initialized to 0 already
         for i in range(len(seq1)):
             for j in range(len(seq2)):
                 if seq1[i] == seq2[j]:
-                    lengths[i+1][j+1] = lengths[i][j] + 1
+                    lengths[i + 1][j + 1] = lengths[i][j] + 1
                 else:
-                    lengths[i+1][j+1] = max(lengths[i+1][j], lengths[i][j+1])
+                    lengths[i + 1][j + 1] = max(lengths[i + 1][j], lengths[i][j + 1])
 
         # read the substring out from the matrix
         result = []
         lenOfSeq1, lenOfSeq2 = len(seq1), len(seq2)
         while lenOfSeq1 != 0 and lenOfSeq2 != 0:
-            if lengths[lenOfSeq1][lenOfSeq2] == lengths[lenOfSeq1-1][lenOfSeq2]:
+            if lengths[lenOfSeq1][lenOfSeq2] == lengths[lenOfSeq1 - 1][lenOfSeq2]:
                 lenOfSeq1 -= 1
-            elif lengths[lenOfSeq1][lenOfSeq2] == lengths[lenOfSeq1][lenOfSeq2-1]:
+            elif lengths[lenOfSeq1][lenOfSeq2] == lengths[lenOfSeq1][lenOfSeq2 - 1]:
                 lenOfSeq2 -= 1
             else:
-                assert seq1[lenOfSeq1-1] == seq2[lenOfSeq2-1]
-                result.insert(0, seq1[lenOfSeq1-1])
+                assert seq1[lenOfSeq1 - 1] == seq2[lenOfSeq2 - 1]
+                result.insert(0, seq1[lenOfSeq1 - 1])
                 lenOfSeq1 -= 1
                 lenOfSeq2 -= 1
         return result
@@ -126,7 +131,7 @@ class LogParser(pickle.Unpickler):
         size_seq = len(seq)
         for LCSObject in LCSMap:
             set_template = set(LCSObject.logTemplate)
-            if len(set_seq & set_template) < 0.5 * size_seq:
+            if len(set_seq & set_template) < self.tau * size_seq:
                 continue
             lcs = self.LCS(seq, LCSObject.logTemplate)
             if len(lcs) > maxLen or (len(lcs) == maxLen and len(LCSObject.logTemplate) < len(maxLCSObject.logTemplate)):
@@ -202,20 +207,9 @@ class LogParser(pickle.Unpickler):
         rootNodePath = os.path.join(self.savePath, 'rootNode.pkl')
         logCluLPath = os.path.join(self.savePath, 'logCluL.pkl')
 
-        if os.path.exists(rootNodePath) and os.path.exists(logCluLPath):
-            with open(rootNodePath, 'rb') as f:
-                rootNode = CustomUnpickler(f).load()
-            with open(logCluLPath, 'rb') as f:
-                logCluL = CustomUnpickler(f).load()
-            self.lastestLineId = 0
-            for logclust in logCluL:
-                if max(logclust.logIDL) > self.lastestLineId:
-                    self.lastestLineId = max(logclust.logIDL)
-            logging.info(f'Load objects done, lastestLineId: {self.lastestLineId}')
-        else:
-            rootNode = Node()
-            logCluL = []
-            self.lastestLineId = 0
+        rootNode = Node()
+        logCluL = []
+        self.lastestLineId = 0
 
         self.df_log['LineId'] = self.df_log['LineId'].apply(lambda x: x + self.lastestLineId)
 
@@ -293,7 +287,8 @@ class LogParser(pickle.Unpickler):
             df_event.append([eid, template_str, len(logclust.logIDL)])
 
         df_event = pd.DataFrame(df_event, columns=['EventId', 'EventTemplate', 'Occurrences'])
-
+        logging.info(f'number of keys for tau = {self.tau}: {len(df_event)}')
+        self.nb_keys = len(df_event)
         self.df_log['EventId'] = ids
         self.df_log['EventTemplate'] = templates
         if self.keep_para:
@@ -308,6 +303,9 @@ class LogParser(pickle.Unpickler):
                 logging.info('Output main file for append')
                 self.df_log.to_csv(os.path.join(self.savePath, self.logmain + '_main_structured.csv'), index=False)
                 df_event.to_csv(os.path.join(self.savePath, self.logmain + '_main_templates.csv'), index=False)
+
+    def nb_keys(self):
+        return self.nb_keys
 
     def load_data(self):
         headers, regex = self.generate_logformat_regex(self.logformat)
@@ -339,7 +337,7 @@ class LogParser(pickle.Unpickler):
                     log_messages.append(message)
                     linecount += 1
                     if linecount % 10000 == 0 or linecount == total_line:
-                        logging.info('Loaded {0:.1f}% of log lines.'.format(linecount*100/total_line))
+                        logging.info('Loaded {0:.1f}% of log lines.'.format(linecount * 100 / total_line))
                 except Exception as e:
                     _ = e
                     pass
@@ -404,7 +402,7 @@ class LogParser(pickle.Unpickler):
         if self.df_log.shape[0] == 0:
             return
 
-        main_structured_path = os.path.join(self.savePath, self.logmain+'_main_structured.csv')
+        main_structured_path = os.path.join(self.savePath, self.logmain + '_main_structured.csv')
         df_log_main_structured = pd.read_csv(main_structured_path)
         lastestLineId = df_log_main_structured['LineId'].max()
         logging.info(f'lastestLindId: {lastestLineId}')
