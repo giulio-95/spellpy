@@ -8,7 +8,6 @@ if __name__ == '__main__':
     input_dir = './data'
     output_dir = './result'
     log_format = '<Date> <Time,<Content>'
-    tau = 0.5
     taux = [p / 10 for p in range(1, 11)]
     keys = []
     if not os.path.exists(output_dir):
